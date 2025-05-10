@@ -80,9 +80,8 @@ def AsMemRefOp : StrOp<"as_memref", [Pure]> {
 
   let builders = [
     OpBuilder<(ins "Value":$input), [{
-      build($_builder, $_state,
-            ::mlir::str::StringType::get($_builder.getContext()),
-            input);
+      auto memrefType = MemRefType::get({ShapedType::kDynamic}, $_builder.getI8Type());
+      build($_builder, $_state, memrefType, input);
     }]>
   ];
 
