@@ -148,16 +148,9 @@ struct AsMemRefOpLowering : OpConversionPattern<str::AsMemRefOp> {
   LogicalResult matchAndRewrite(
       str::AsMemRefOp op, OpAdaptor adaptor,
       ConversionPatternRewriter &rewriter) const override {
-    // Check that the operand has already been converted to memref<?xi8>
-    Value input = adaptor.getInput();
-    auto type = dyn_cast<MemRefType>(input.getType());
-
-    if (!type || !type.getElementType().isInteger(8) || type.getRank() != 1) {
-      return rewriter.notifyMatchFailure(op, "expected memref<?xi8>");
-    }
-
-    // Replace str.as_memref with the underlying memref
-    rewriter.replaceOp(op, input);
+    // we assume that the input has already been lowered to memref
+    // (or something lower than memref, such as llvm.struct)
+    rewriter.replaceOp(op, adaptor.getInput());
     return success();
   }
 };
