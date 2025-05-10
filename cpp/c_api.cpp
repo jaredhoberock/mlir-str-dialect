@@ -48,4 +48,16 @@ MlirOperation strCmpOpCreate(MlirLocation loc,
   return wrap(op.getOperation());
 }
 
+MlirOperation strAsMemRefOpCreate(MlirLocation loc,
+                                  MlirValue input) {
+  MLIRContext *ctx = unwrap(loc).getContext();
+  OpBuilder builder(ctx);
+
+  auto op = builder.create<AsMemRefOp>(
+    unwrap(loc),
+    unwrap(input)
+  );
+  return wrap(op.getOperation());
+}
+
 } // end extern "C"

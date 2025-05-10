@@ -142,6 +142,26 @@ struct CmpOpLowering : OpConversionPattern<CmpOp> {
   }
 };
 
+struct AsMemRefOpLowering : OpConversionPattern<str::AsMemRefOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(
+      str::AsMemRefOp op, OpAdaptor adaptor,
+      ConversionPatternRewriter &rewriter) const override {
+    // Check that the operand has already been converted to memref<?xi8>
+    Value input = adaptor.getInput();
+    auto type = dyn_cast<MemRefType>(input.getType());
+
+    if (!type || !type.getElementType().isInteger(8) || type.getRank() != 1) {
+      return rewriter.notifyMatchFailure(op, "expected memref<?xi8>");
+    }
+
+    // Replace str.as_memref with the underlying memref
+    rewriter.replaceOp(op, input);
+    return success();
+  }
+};
+
 void populateStrToLLVMConversionPatterns(LLVMTypeConverter& typeConverter, RewritePatternSet& patterns) {
   // add conversion from !str.string to memref<?xi8>
   typeConverter.addConversion([&](StringType type) -> Type {
@@ -154,6 +174,7 @@ void populateStrToLLVMConversionPatterns(LLVMTypeConverter& typeConverter, Rewri
   });
 
   patterns.add<
+    AsMemRefOpLowering,
     CmpOpLowering,
     ConstantOpLowering
   >(typeConverter, patterns.getContext());

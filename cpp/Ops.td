@@ -61,4 +61,32 @@ def CmpOp : StrOp<"cmp", [Pure]> {
   let assemblyFormat = "$predicate `,` $lhs `,` $rhs attr-dict `:` type($lhs)";
 }
 
+def AsMemRefOp : StrOp<"as_memref", [Pure]> {
+  let summary = "Expose the underlying memref of a string";
+  let description = [{
+    Converts a `!str.string` into a `memref<?xi8>` referencing its contents.
+    
+    This operation is useful when interfacing with lower-level dialects like `printf`,
+    which expect a raw character buffer.
+
+    Example:
+      %buffer = str.as_memref %s : !str.string to memref<?xi8>
+  }];
+
+  let arguments = (ins StringType:$input);
+  let results = (outs AnyMemRef:$output);
+
+  let hasVerifier = 1;
+
+  let builders = [
+    OpBuilder<(ins "Value":$input), [{
+      build($_builder, $_state,
+            ::mlir::str::StringType::get($_builder.getContext()),
+            input);
+    }]>
+  ];
+
+  let assemblyFormat = "$input attr-dict `:` type($input) `to` type($output)";
+}
+
 #endif // STR_OPS_TD
