@@ -12,7 +12,6 @@ pub enum CmpPredicate {
     Ge = 5,
 }
 
-#[link(name = "str_dialect")]
 unsafe extern "C" {
     fn strRegisterDialect(ctx: MlirContext);
     fn strStringTypeGet(ctx: MlirContext) -> MlirType;
