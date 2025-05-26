@@ -21,7 +21,8 @@ fn main() {
     }
 
     // Link against the static library in cpp/
-    println!("cargo:rustc-link-arg=-Wl,-force_load,cpp/libstr_dialect.a");
+    println!("cargo:rustc-link-search=native={}", cpp_dir.display());
+    println!("cargo:rustc-link-lib=static=str_dialect");
 
     // Ensure rebuild if anything in cpp/ changes
     println!("cargo:rerun-if-changed=cpp/");
