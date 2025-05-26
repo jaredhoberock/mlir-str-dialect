@@ -18,6 +18,7 @@ unsafe extern "C" {
     fn strConstantOpCreate(loc: MlirLocation, value: MlirStringRef) -> MlirOperation;
     fn strCmpOpCreate(loc: MlirLocation, predicate: CmpPredicate, lhs: MlirValue, rhs: MlirValue) -> MlirOperation;
     fn strAsMemRefOpCreate(loc: MlirLocation, input: MlirValue) -> MlirOperation;
+    fn strCatOpCreate(loc: MlirLocation, lhs: MlirValue, rhs: MlirValue) -> MlirOperation;
 }
 
 pub fn register(context: &Context) {
@@ -65,6 +66,20 @@ pub fn as_memref<'c>(loc: Location<'c>, input: Value<'c,'_>) -> Operation<'c> {
         Operation::from_raw(strAsMemRefOpCreate(
             loc.to_raw(),
             input.to_raw(),
+        ))
+    }
+}
+
+pub fn cat<'c>(
+    loc: Location<'c>,
+    lhs: Value<'c,'_>,
+    rhs: Value<'c,'_>,
+) -> Operation<'c> {
+    unsafe {
+        Operation::from_raw(strCatOpCreate(
+            loc.to_raw(),
+            lhs.to_raw(),
+            rhs.to_raw(),
         ))
     }
 }

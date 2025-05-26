@@ -13,13 +13,11 @@ use melior::{
 };
 use str_dialect as str_;
 
-fn build_test1_func<'c>(
+fn build_test_cmp1<'c>(
     context: &'c Context,
     loc: Location<'c>
 ) -> Operation<'c> {
-    // build a func.func @test1:
-    //
-    // func.func @test1() -> i1 {
+    // func.func @test_cmp1() -> i1 {
     //   %a = str.constant "hello" : !str.string
     //   %b = str.constant "hello" : !str.string
     //   %r = str.cmp eq, %a, %b : !str.string
@@ -66,7 +64,7 @@ fn build_test1_func<'c>(
 
     let mut func_op = func::func(
         &context,
-        StringAttribute::new(&context, "test1"),
+        StringAttribute::new(&context, "test_cmp1"),
         TypeAttribute::new(function_type.into()),
         region,
         &[],
@@ -100,13 +98,14 @@ fn parse_operation_from_string<'c>(
     }
 }
 
-fn build_test2_func<'c>(context: &'c Context) -> Operation<'c> {
+fn build_test_cmp2<'c>(context: &'c Context) -> Operation<'c> {
     // this function applies str.cmp on a & b
     // for each different predicate
     // and packs the result of each application into
     // a bit vector
     let source = r#"
-    func.func @test2(%a: !str.string, %b: !str.string) -> i64 {
+    func.func @test_cmp2(%a: !str.string, %b: !str.string) -> i64
+      attributes { llvm.emit_c_interface } {
       %eq = str.cmp eq, %a, %b : !str.string
       %ne = str.cmp ne, %a, %b : !str.string
       %lt = str.cmp lt, %a, %b : !str.string
@@ -140,6 +139,22 @@ fn build_test2_func<'c>(context: &'c Context) -> Operation<'c> {
       %bitmask = arith.ori %result4, %ge_shifted : i64
     
       return %bitmask : i64
+    }
+    "#;
+
+    parse_operation_from_string(
+        context,
+        source,
+    ).unwrap()
+}
+
+fn build_test_cat<'c>(context: &'c Context) -> Operation<'c> {
+    let source = r#"
+    func.func @test_cat(%a: !str.string, %b: !str.string, %expected: !str.string) -> i64 {
+      %ab = str.cat %a, %b
+      %cmp = str.cmp eq, %ab, %expected : !str.string
+      %cmp64 = arith.extui %cmp : i1 to i64
+      return %cmp64 : i64
     }
     "#;
 
@@ -192,12 +207,15 @@ fn test_str_jit() {
     let loc = Location::unknown(&context);
     let mut module = Module::new(loc);
 
-    // build two functions @test1 and @test2
+    // build test functions
     module.body().append_operation(
-        build_test1_func(&context, loc)
+        build_test_cmp1(&context, loc)
     );
     module.body().append_operation(
-        build_test2_func(&context)
+        build_test_cmp2(&context)
+    );
+    module.body().append_operation(
+        build_test_cat(&context)
     );
 
     assert!(module.as_operation().verify(), "MLIR module verification failed");
@@ -210,23 +228,23 @@ fn test_str_jit() {
     // JIT compile the module
     let engine = ExecutionEngine::new(&module, 0, &[], false);
 
-    // test 1
+    // test_cmp1
     unsafe {
         let mut result: bool = false;
         let mut packed_args: [*mut (); 1] = [
             &mut result as *mut bool as *mut ()
         ];
 
-        engine.invoke_packed("test1", &mut packed_args)
-            .expect("test1 JIT invocation failed");
+        engine.invoke_packed("test_cmp1", &mut packed_args)
+            .expect("test_cmp1 JIT invocation failed");
 
         assert_eq!(result, true);
     }
 
-    // test 2
+    // test_cmp2
 
-    // this helper function helps us actually call the test2 function
-    fn call_test2(engine: &ExecutionEngine, a: &[u8], b: &[u8]) -> i64 {
+    // this helper function helps us actually call the test_cmp2 function
+    fn call_test_cmp2(engine: &ExecutionEngine, a: &[u8], b: &[u8]) -> i64 {
         // each input must be null-terminated
         assert!(a.ends_with(&[0]) && b.ends_with(&[0]));
 
@@ -243,8 +261,8 @@ fn test_str_jit() {
 
         unsafe {
             engine
-                .invoke_packed("test2", &mut packed_args)
-                .expect("test2 invocation failed");
+                .invoke_packed("test_cmp2", &mut packed_args)
+                .expect("test_cmp2 invocation failed");
         }
 
         result
@@ -258,20 +276,50 @@ fn test_str_jit() {
     // Each bit is set to 1 if the corresponding predicate evaluates to true.
 
     // true bits: eq, le, ge 
-    assert_eq!(call_test2(&engine, b"abc\0", b"abc\0"), 0b101001);
+    assert_eq!(call_test_cmp2(&engine, b"abc\0", b"abc\0"), 0b101001);
     
     // true bits: ne, lt, le
-    assert_eq!(call_test2(&engine, b"a\0", b"abc\0"), 0b001110);
+    assert_eq!(call_test_cmp2(&engine, b"a\0", b"abc\0"), 0b001110);
     
     // true bits: ne, gt, ge
-    assert_eq!(call_test2(&engine, b"abc\0", b"a\0"), 0b110010);
+    assert_eq!(call_test_cmp2(&engine, b"abc\0", b"a\0"), 0b110010);
     
     // true bits: ne, lt, le
-    assert_eq!(call_test2(&engine, b"abc\0", b"abcd\0"), 0b001110);
+    assert_eq!(call_test_cmp2(&engine, b"abc\0", b"abcd\0"), 0b001110);
     
     // true bits: ne, gt, ge
-    assert_eq!(call_test2(&engine, b"abcd\0", b"abc\0"), 0b110010);
+    assert_eq!(call_test_cmp2(&engine, b"abcd\0", b"abc\0"), 0b110010);
     
     // true bits: eq, le, ge
-    assert_eq!(call_test2(&engine, b"\0", b"\0"), 0b101001);
+    assert_eq!(call_test_cmp2(&engine, b"\0", b"\0"), 0b101001);
+
+
+    // test_cat
+    fn call_test_cat(engine: &ExecutionEngine, a: &[u8], b: &[u8], expected: &[u8]) -> i64 {
+        // each input must be null-terminated
+        assert!(a.ends_with(&[0]) && b.ends_with(&[0]) && expected.ends_with(&[0]));
+
+        // Prepare arguments (as `char*`, i.e., `*mut i8`)
+        let mut memref_a = make_memref_descriptor(a);
+        let mut memref_b = make_memref_descriptor(b);
+        let mut memref_expected = make_memref_descriptor(expected);
+        let mut result: i64 = -1;
+
+        let mut packed_args: [*mut (); 4] = [
+            &mut memref_a as *mut _ as *mut (),
+            &mut memref_b as *mut _ as *mut (),
+            &mut memref_expected as *mut _ as *mut (),
+            &mut result as *mut _ as *mut (),
+        ];
+
+        unsafe {
+            engine
+                .invoke_packed("test_cat", &mut packed_args)
+                .expect("test_cat invocation failed");
+        }
+
+        result
+    }
+
+    assert_eq!(call_test_cat(&engine, b"hello, \0", b"world\0", b"hello, world\0"), 1);
 }

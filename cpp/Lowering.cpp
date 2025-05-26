@@ -11,9 +11,68 @@
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
 #include <mlir/Dialect/LLVMIR/LLVMTypes.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
+#include <mlir/Dialect/MemRef/Transforms/Transforms.h>
 #include <mlir/Transforms/DialectConversion.h>
 
 namespace mlir::str {
+
+struct CatOpLowering : OpConversionPattern<CatOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(
+      CatOp op, OpAdaptor adaptor,
+      ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    MLIRContext *ctx = rewriter.getContext();
+
+    // get inputs as memrefs
+    Value lhs = rewriter.create<AsMemRefOp>(loc, op.getLhs());
+    Value rhs = rewriter.create<AsMemRefOp>(loc, op.getRhs());
+
+    // get lengths including null
+    Value lhsSize = rewriter.create<memref::DimOp>(loc, lhs, 0);
+    Value rhsSize = rewriter.create<memref::DimOp>(loc, rhs, 0);
+    Value one = rewriter.create<arith::ConstantIndexOp>(loc, 1);
+
+    // subtract one for the null terminator
+    Value lhsLen = rewriter.create<arith::SubIOp>(loc, lhsSize, one);
+    Value rhsLen = rewriter.create<arith::SubIOp>(loc, rhsSize, one);
+
+    // total length + null
+    Value sumLen = rewriter.create<arith::AddIOp>(loc, lhsLen, rhsLen);
+    Value totalSize = rewriter.create<arith::AddIOp>(loc, sumLen, one);
+
+    // alloc result memref<?xi8>
+    auto memrefTy = MemRefType::get({ShapedType::kDynamic}, rewriter.getI8Type());
+    Value alloc = rewriter.create<memref::AllocOp>(loc, memrefTy, totalSize);
+
+    // copy lhs region
+    Value zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+    auto lhsDst = rewriter.create<memref::SubViewOp>(loc, memrefTy, alloc,
+      ValueRange{zero}, ValueRange{lhsLen}, ValueRange{one});
+    auto lhsSrc = rewriter.create<memref::SubViewOp>(loc, memrefTy, lhs,
+      ValueRange{zero}, ValueRange{lhsLen}, ValueRange{one});
+    rewriter.create<memref::CopyOp>(loc, lhsSrc, lhsDst);
+
+    // copy rhs region
+    auto rhsDst = rewriter.create<memref::SubViewOp>(loc, memrefTy, alloc,
+      ValueRange{lhsLen}, ValueRange{rhsLen}, ValueRange{one});
+    auto rhsSrc = rewriter.create<memref::SubViewOp>(loc, memrefTy, rhs,
+      ValueRange{zero}, ValueRange{rhsLen}, ValueRange{one});
+    rewriter.create<memref::CopyOp>(loc, rhsSrc, rhsDst);
+
+    // null-terminate
+    Value zero8 = rewriter.create<arith::ConstantIntOp>(loc, 0, 8);
+    rewriter.create<memref::StoreOp>(
+      loc,
+      zero8,
+      alloc,
+      ValueRange{sumLen});
+
+    rewriter.replaceOp(op, alloc);
+    return success();
+  }
+};
 
 struct ConstantOpLowering : OpConversionPattern<ConstantOp> {
   using OpConversionPattern::OpConversionPattern;
@@ -168,10 +227,13 @@ void populateStrToLLVMConversionPatterns(LLVMTypeConverter& typeConverter, Rewri
 
   patterns.add<
     AsMemRefOpLowering,
+    CatOpLowering,
     CmpOpLowering,
     ConstantOpLowering
   >(typeConverter, patterns.getContext());
 
+  memref::populateExpandStridedMetadataPatterns(patterns);
+  populateFinalizeMemRefToLLVMConversionPatterns(typeConverter, patterns);
   populateFuncToLLVMConversionPatterns(typeConverter, patterns);
 }
 

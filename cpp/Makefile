@@ -14,7 +14,7 @@ MLIR_INCLUDE = $(HOME)/dev/git/llvm-project-20/install/include
 INCLUDES := -I $(MLIR_INCLUDE)
 
 # Dialect library sources
-DIALECT_SOURCES := c_api.cpp Dialect.cpp Enums.cpp Lowering.cpp Ops.cpp Types.cpp
+DIALECT_SOURCES := c_api.cpp Canonicalization.cpp Dialect.cpp Enums.cpp Lowering.cpp Ops.cpp Types.cpp
 DIALECT_OBJECTS := $(DIALECT_SOURCES:.cpp=.o)
 
 # Generated files

@@ -18,6 +18,8 @@ def StrDialect : Dialect {
     "mlir::memref::MemRefDialect",
     "mlir::func::FuncDialect",
   ];
+
+  let hasCanonicalizer = 1;
 }
 
 class StrOp<string mnemonic, list<Trait> traits = []> :

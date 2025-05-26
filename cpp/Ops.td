@@ -61,6 +61,33 @@ def CmpOp : StrOp<"cmp", [Pure]> {
   let assemblyFormat = "$predicate `,` $lhs `,` $rhs attr-dict `:` type($lhs)";
 }
 
+def CatOp : StrOp<"cat", [Pure]> {
+  let summary = "Concatenate two `!str.string` values";
+  let description = [{
+    Concatenates two `!str.string` values into a new string.
+
+    Example:
+      %c = str.cat %a, %b : !str.string
+  }];
+
+  let arguments = (ins
+    StringType:$lhs,
+    StringType:$rhs
+  );
+
+  let results = (outs StringType);
+
+  let builders = [
+    OpBuilder<(ins "Value":$lhs, "Value":$rhs), [{
+      build($_builder, $_state,
+            $_builder.getType<::mlir::str::StringType>(),
+            lhs, rhs);
+    }]>
+  ];
+
+  let assemblyFormat = "$lhs `,` $rhs attr-dict";
+}
+
 def AsMemRefOp : StrOp<"as_memref", [Pure]> {
   let summary = "Expose the underlying memref of a string";
   let description = [{

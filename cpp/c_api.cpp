@@ -60,4 +60,18 @@ MlirOperation strAsMemRefOpCreate(MlirLocation loc,
   return wrap(op.getOperation());
 }
 
+MlirOperation strCatOpCreate(MlirLocation loc,
+                             MlirValue lhs,
+                             MlirValue rhs) {
+  MLIRContext *ctx = unwrap(loc).getContext();
+  OpBuilder builder(ctx);
+
+  auto op = builder.create<CatOp>(
+    unwrap(loc),
+    unwrap(lhs),
+    unwrap(rhs)
+  );
+  return wrap(op.getOperation());
+}
+
 } // end extern "C"

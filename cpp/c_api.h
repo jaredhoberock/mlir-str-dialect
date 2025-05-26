@@ -32,6 +32,10 @@ MlirOperation strCmpOpCreate(MlirLocation loc,
 MlirOperation strAsMemRefOpCreate(MlirLocation loc,
                                   MlirValue input);
 
+MlirOperation strCatOpCreate(MlirLocation loc,
+                             MlirValue lhs,
+                             MlirValue rhs);
+
 #ifdef __cplusplus
 }
 #endif
