@@ -95,8 +95,10 @@ struct ConstantOpLowering : OpConversionPattern<ConstantOp> {
     auto staticType = MemRefType::get({length}, i8Type);
     auto dynamicType = MemRefType::get({ShapedType::kDynamic}, i8Type);
 
-    // get or create the memref.global
-    ModuleOp module = op->getParentOfType<ModuleOp>();
+    // find nearest symbol table
+    Operation *symbolTable = SymbolTable::getNearestSymbolTable(op);
+    if (!symbolTable)
+      return rewriter.notifyMatchFailure(op, "not inside a symbol table");
 
     // check cache first
     auto it = globalSymbolCache.find(hash);
@@ -116,9 +118,9 @@ struct ConstantOpLowering : OpConversionPattern<ConstantOp> {
       auto tensorType = RankedTensorType::get({length}, i8Type);
       auto initialValueAttr = DenseElementsAttr::get(tensorType, chars);
 
-      // insert the global at module scope
+      // insert the global at symbol table scope
       PatternRewriter::InsertionGuard guard(rewriter);
-      rewriter.setInsertionPointToStart(module.getBody());
+      rewriter.setInsertionPointToStart(&symbolTable->getRegion(0).front());
       rewriter.create<memref::GlobalOp>(
         op.getLoc(),
         rewriter.getStringAttr(globalName), // sym_name
