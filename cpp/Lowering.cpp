@@ -77,8 +77,8 @@ struct CatOpLowering : OpConversionPattern<CatOp> {
 struct ConstantOpLowering : OpConversionPattern<ConstantOp> {
   using OpConversionPattern::OpConversionPattern;
 
-  // cache mapping string hash to symbol name
-  mutable llvm::DenseMap<uint64_t, StringAttr> globalSymbolCache;
+  // cache mapping (symbol table, string hash) to symbol name
+  mutable llvm::DenseMap<std::pair<Operation*, uint64_t>, StringAttr> globalSymbolCache;
 
   LogicalResult matchAndRewrite(
       ConstantOp op, OpAdaptor adaptor,
@@ -100,13 +100,16 @@ struct ConstantOpLowering : OpConversionPattern<ConstantOp> {
     if (!symbolTable)
       return rewriter.notifyMatchFailure(op, "not inside a symbol table");
 
+    // cache key includes symbol table
+    auto cacheKey = std::make_pair(symbolTable, hash);
+
     // check cache first
-    auto it = globalSymbolCache.find(hash);
+    auto it = globalSymbolCache.find(cacheKey);
     if (it == globalSymbolCache.end()) {
       // create a name for the global based on the hash
       std::string globalName = "__str_" + std::to_string(hash);
       symbol = rewriter.getStringAttr(globalName);
-      globalSymbolCache[hash] = symbol;
+      globalSymbolCache[cacheKey] = symbol;
 
       // construct DenseElementsAttr from characters
       SmallVector<APInt,16> chars;
