@@ -8,7 +8,7 @@
 func.func @main() -> i32 {
   %fmt = str.constant "%lld" : !str.string
   %x = arith.constant 42 : i64
-  %s = str.format %fmt(%x) : (!str.string, i64) -> !str.string
+  %s = str.format(%fmt, %x) : (!str.string, i64) -> !str.string
 
   %expected = str.constant "42" : !str.string
   %eq = str.cmp eq, %s, %expected : !str.string

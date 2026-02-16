@@ -171,7 +171,7 @@ fn build_test_format<'c>(context: &'c Context) -> Operation<'c> {
     let source = r#"
     func.func @test_format(%x: i64, %expected: !str.string) -> i64 {
       %fmt = str.constant "%lld" : !str.string
-      %s = str.format %fmt(%x) : (!str.string, i64) -> !str.string
+      %s = str.format(%fmt, %x) : (!str.string, i64) -> !str.string
       %cmp = str.cmp eq, %s, %expected : !str.string
       %cmp64 = arith.extui %cmp : i1 to i64
       return %cmp64 : i64

@@ -136,7 +136,7 @@ def FormatOp : StrOp<"format", [Pure]> {
     }]>
   ];
 
-  let assemblyFormat = "$format `(` $args `)` attr-dict `:` functional-type(operands, results)";
+  let assemblyFormat = "`(` $format (`,` $args^)? `)` attr-dict `:` functional-type(operands, results)";
 }
 
 #endif // STR_OPS_TD
