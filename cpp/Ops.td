@@ -115,4 +115,28 @@ def AsMemRefOp : StrOp<"as_memref", [Pure]> {
   let assemblyFormat = "$input attr-dict `:` type($input) `to` type($output)";
 }
 
+def FormatOp : StrOp<"format", [Pure]> {
+  let summary = "Format values into a string using a printf-style format string";
+  let description = [{
+    Formats one or more values into a `!str.string` using a printf-style
+    format string.
+    Example:
+      %fmt = str.constant "%lld" : !str.string
+      %s = str.format %fmt(%x) : (!str.string, i64) -> !str.string
+  }];
+
+  let arguments = (ins StringType:$format, Variadic<AnyType>:$args);
+  let results = (outs StringType);
+
+  let builders = [
+    OpBuilder<(ins "Value":$format, "ValueRange":$args), [{
+      $_state.addOperands(format);
+      $_state.addOperands(args);
+      $_state.addTypes($_builder.getType<::mlir::str::StringType>());
+    }]>
+  ];
+
+  let assemblyFormat = "$format `(` $args `)` attr-dict `:` functional-type(operands, results)";
+}
+
 #endif // STR_OPS_TD

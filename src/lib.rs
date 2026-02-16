@@ -19,6 +19,7 @@ unsafe extern "C" {
     fn strCmpOpCreate(loc: MlirLocation, predicate: CmpPredicate, lhs: MlirValue, rhs: MlirValue) -> MlirOperation;
     fn strAsMemRefOpCreate(loc: MlirLocation, input: MlirValue) -> MlirOperation;
     fn strCatOpCreate(loc: MlirLocation, lhs: MlirValue, rhs: MlirValue) -> MlirOperation;
+    fn strFormatOpCreate(loc: MlirLocation, fmt: MlirValue, args: *const MlirValue, numArgs: isize) -> MlirOperation;
 }
 
 pub fn register(context: &Context) {
@@ -80,6 +81,22 @@ pub fn cat<'c>(
             loc.to_raw(),
             lhs.to_raw(),
             rhs.to_raw(),
+        ))
+    }
+}
+
+pub fn format<'c>(
+    loc: Location<'c>,
+    fmt: Value<'c,'_>,
+    args: &[Value<'c,'_>],
+) -> Operation<'c> {
+    unsafe {
+        let raw_args: Vec<MlirValue> = args.iter().map(|v| v.to_raw()).collect();
+        Operation::from_raw(strFormatOpCreate(
+            loc.to_raw(),
+            fmt.to_raw(),
+            raw_args.as_ptr(),
+            raw_args.len() as isize,
         ))
     }
 }

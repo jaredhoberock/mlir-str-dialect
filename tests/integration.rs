@@ -167,6 +167,22 @@ fn build_test_cat<'c>(context: &'c Context) -> Operation<'c> {
     op
 }
 
+fn build_test_format<'c>(context: &'c Context) -> Operation<'c> {
+    let source = r#"
+    func.func @test_format(%x: i64, %expected: !str.string) -> i64 {
+      %fmt = str.constant "%lld" : !str.string
+      %s = str.format %fmt(%x) : (!str.string, i64) -> !str.string
+      %cmp = str.cmp eq, %s, %expected : !str.string
+      %cmp64 = arith.extui %cmp : i1 to i64
+      return %cmp64 : i64
+    }
+    "#;
+
+    let mut op = parse_operation_from_string(context, source).unwrap();
+    op.set_attribute("llvm.emit_c_interface", Attribute::unit(&context));
+    op
+}
+
 #[repr(C)]
 #[derive(Debug)]
 struct MemRef1D {
@@ -216,6 +232,9 @@ fn test_str_jit() {
     );
     module.body().append_operation(
         build_test_cat(&context)
+    );
+    module.body().append_operation(
+        build_test_format(&context)
     );
 
     assert!(module.as_operation().verify(), "MLIR module verification failed");
@@ -322,4 +341,33 @@ fn test_str_jit() {
     }
 
     assert_eq!(call_test_cat(&engine, b"hello, \0", b"world\0", b"hello, world\0"), 1);
+
+
+    // test_format
+    fn call_test_format(engine: &ExecutionEngine, x: i64, expected: &[u8]) -> i64 {
+        assert!(expected.ends_with(&[0]));
+    
+        let mut memref_expected = make_memref_descriptor(expected);
+        let mut x = x;
+        let mut result: i64 = -1;
+    
+        let mut packed_args: [*mut (); 3] = [
+            &mut x as *mut _ as *mut (),
+            &mut memref_expected as *mut _ as *mut (),
+            &mut result as *mut _ as *mut (),
+        ];
+    
+        unsafe {
+            engine
+                .invoke_packed("test_format", &mut packed_args)
+                .expect("test_format invocation failed");
+        }
+    
+        result
+    }
+    
+    assert_eq!(call_test_format(&engine, 42, b"42\0"), 1);
+    assert_eq!(call_test_format(&engine, 0, b"0\0"), 1);
+    assert_eq!(call_test_format(&engine, -1, b"-1\0"), 1);
+    assert_eq!(call_test_format(&engine, 1234567890, b"1234567890\0"), 1);
 }

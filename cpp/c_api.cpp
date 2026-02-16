@@ -74,4 +74,21 @@ MlirOperation strCatOpCreate(MlirLocation loc,
   return wrap(op.getOperation());
 }
 
+MlirOperation strFormatOpCreate(MlirLocation loc,
+                                MlirValue format,
+                                const MlirValue *args, intptr_t numArgs) {
+  MLIRContext *ctx = unwrap(loc).getContext();
+  OpBuilder builder(ctx);
+  SmallVector<Value> argValues;
+  for (intptr_t i = 0; i < numArgs; ++i) {
+    argValues.push_back(unwrap(args[i]));
+  }
+  auto op = builder.create<FormatOp>(
+    unwrap(loc),
+    unwrap(format),
+    argValues
+  );
+  return wrap(op.getOperation());
+}
+
 } // end extern "C"

@@ -36,6 +36,11 @@ MlirOperation strCatOpCreate(MlirLocation loc,
                              MlirValue lhs,
                              MlirValue rhs);
 
+MlirOperation strFormatOpCreate(MlirLocation loc,
+                                MlirValue fmt,
+                                const MlirValue *args, intptr_t numArgs);
+
+
 #ifdef __cplusplus
 }
 #endif

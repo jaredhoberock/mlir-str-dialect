@@ -16,6 +16,19 @@
 
 namespace mlir::str {
 
+struct AsMemRefOpLowering : OpConversionPattern<str::AsMemRefOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(
+      str::AsMemRefOp op, OpAdaptor adaptor,
+      ConversionPatternRewriter &rewriter) const override {
+    // we assume that the input has already been lowered to memref
+    // (or something lower than memref, such as llvm.struct)
+    rewriter.replaceOp(op, adaptor.getInput());
+    return success();
+  }
+};
+
 struct CatOpLowering : OpConversionPattern<CatOp> {
   using OpConversionPattern::OpConversionPattern;
 
@@ -206,15 +219,123 @@ struct CmpOpLowering : OpConversionPattern<CmpOp> {
   }
 };
 
-struct AsMemRefOpLowering : OpConversionPattern<str::AsMemRefOp> {
+/// Lowers str.format to snprintf via a measure-then-write pattern.
+///
+/// The format string is already lowered to a memref descriptor by ConstantOpLowering.
+/// We call snprintf twice: once to measure the output length, once to write it.
+/// The result buffer is allocated via memref.alloc so it's visible to future
+/// deallocation passes.
+///
+/// Input:
+///   %fmt = str.constant "%lld" : !str.string
+///   %s = str.format %fmt(%x) : (!str.string, i64) -> !str.string
+///
+/// Lowers to (approximately):
+///   // measure
+///   %len = llvm.call @snprintf(nullptr, 0, %fmt_ptr, %x) : ... -> i32
+///   %buf_size = llvm.add %len, 1
+///
+///   // allocate
+///   %buf = memref.alloc(%buf_size) : memref<?xi8>
+///   %buf_ptr = <extract pointer from %buf>
+///
+///   // write
+///   llvm.call @snprintf(%buf_ptr, %buf_size, %fmt_ptr, %x) : ...
+///
+/// Notes:
+/// - i1 arguments are promoted to i32 per C variadic calling convention
+/// - snprintf is declared as a variadic LLVM function because func.call
+///   does not support varargs
+/// - The format string pointer is extracted from the already-lowered memref
+///   descriptor, same as CmpOpLowering does for strcmp
+struct FormatOpLowering : OpConversionPattern<FormatOp> {
   using OpConversionPattern::OpConversionPattern;
 
   LogicalResult matchAndRewrite(
-      str::AsMemRefOp op, OpAdaptor adaptor,
+      FormatOp op, OpAdaptor adaptor,
       ConversionPatternRewriter &rewriter) const override {
-    // we assume that the input has already been lowered to memref
-    // (or something lower than memref, such as llvm.struct)
-    rewriter.replaceOp(op, adaptor.getInput());
+    Location loc = op.getLoc();
+    MLIRContext *ctx = rewriter.getContext();
+    ModuleOp module = op->getParentOfType<ModuleOp>();
+
+    auto ptrTy = LLVM::LLVMPointerType::get(ctx);
+    Type i8Ty = rewriter.getI8Type();
+    Type i32Ty = rewriter.getI32Type();
+    Type i64Ty = rewriter.getI64Type();
+    auto memrefTy = MemRefType::get({ShapedType::kDynamic}, i8Ty);
+    auto snprintfTy = LLVM::LLVMFunctionType::get(
+      i32Ty,
+      {ptrTy, i64Ty, ptrTy},
+      /*isVarArg=*/true
+    );
+
+    // declare snprintf if needed
+    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("snprintf")) {
+      PatternRewriter::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToStart(module.getBody());
+      rewriter.create<LLVM::LLVMFuncOp>(loc, "snprintf", snprintfTy);
+    }
+
+    // extract format string pointer from lowered memref descriptor
+    MemRefDescriptor fmtDesc(adaptor.getFormat());
+    Value fmtPtr = fmtDesc.alignedPtr(rewriter, loc);
+
+    // promote i1 args to i32 for C variadic calling convention
+    SmallVector<Value> fmtArgs;
+    for (Value arg : adaptor.getArgs()) {
+      if (arg.getType().isInteger(1)) {
+        fmtArgs.push_back(
+          rewriter.create<LLVM::ZExtOp>(loc, i32Ty, arg));
+      } else {
+        fmtArgs.push_back(arg);
+      }
+    }
+
+    // step 1: measure — snprintf(nullptr, 0, fmt, args...) → length
+    Value nullPtr = rewriter.create<LLVM::ZeroOp>(loc, ptrTy);
+    Value zero64 = rewriter.create<LLVM::ConstantOp>(
+      loc, i64Ty, rewriter.getI64IntegerAttr(0));
+
+    SmallVector<Value> measureArgs = {nullPtr, zero64, fmtPtr};
+    measureArgs.append(fmtArgs.begin(), fmtArgs.end());
+
+    Value len32 = rewriter.create<LLVM::CallOp>(
+      loc,
+      snprintfTy,
+      "snprintf",
+      measureArgs
+    ).getResult();
+
+    // bufSize = len + 1 (for null terminator)
+    Value one32 = rewriter.create<LLVM::ConstantOp>(
+      loc, i32Ty, rewriter.getI32IntegerAttr(1));
+    Value bufSize32 = rewriter.create<LLVM::AddOp>(loc, len32, one32);
+    Value bufSize = rewriter.create<LLVM::SExtOp>(loc, i64Ty, bufSize32);
+
+    // convert to index for memref.alloc
+    Value bufSizeIdx = rewriter.create<arith::IndexCastOp>(
+      loc, rewriter.getIndexType(), bufSize);
+
+    // step 2: allocate buffer via memref.alloc
+    Value alloc = rewriter.create<memref::AllocOp>(loc, memrefTy, bufSizeIdx);
+
+    // extract pointer from memref for snprintf
+    Value ptrIdx = rewriter.create<memref::ExtractAlignedPointerAsIndexOp>(loc, alloc);
+    Value ptrInt = rewriter.create<arith::IndexCastOp>(loc, i64Ty, ptrIdx);
+    Value bufPtr = rewriter.create<LLVM::IntToPtrOp>(loc, ptrTy, ptrInt);
+
+    // step 3: format — snprintf(buf, bufSize, fmt, args...)
+    SmallVector<Value> writeArgs = {bufPtr, bufSize, fmtPtr};
+    writeArgs.append(fmtArgs.begin(), fmtArgs.end());
+    rewriter.create<LLVM::CallOp>(
+      loc,
+      snprintfTy,
+      "snprintf",
+      writeArgs
+    );
+
+    // step 4: replace with the memref — type conversion handles the rest
+    rewriter.replaceOp(op, alloc);
     return success();
   }
 };
@@ -224,9 +345,7 @@ void populateStrToLLVMConversionPatterns(LLVMTypeConverter& typeConverter, Rewri
   typeConverter.addConversion([&](StringType type) -> Type {
     Type memrefType = MemRefType::get({ShapedType::kDynamic}, IntegerType::get(type.getContext(), 8));
 
-    // XXX this seems like a bug
-    //     it shouldn't be necessary to apply the type converter to the intermediate type
-    //     MLIR should handle that for us automatically
+    // recurse on the memref type to convert to an LLVM type
     return typeConverter.convertType(memrefType);
   });
 
@@ -234,7 +353,8 @@ void populateStrToLLVMConversionPatterns(LLVMTypeConverter& typeConverter, Rewri
     AsMemRefOpLowering,
     CatOpLowering,
     CmpOpLowering,
-    ConstantOpLowering
+    ConstantOpLowering,
+    FormatOpLowering
   >(typeConverter, patterns.getContext());
 
   memref::populateExpandStridedMetadataPatterns(patterns);
