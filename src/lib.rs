@@ -26,7 +26,7 @@ pub fn register(context: &Context) {
     unsafe { strRegisterDialect(context.to_raw()) }
 }
 
-pub fn string_type(context: &Context) -> Type {
+pub fn string_type(context: &Context) -> Type<'_> {
     unsafe { Type::from_raw(strStringTypeGet(context.to_raw())) }
 }
 

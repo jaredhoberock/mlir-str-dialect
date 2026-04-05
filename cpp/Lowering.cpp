@@ -39,44 +39,44 @@ struct CatOpLowering : OpConversionPattern<CatOp> {
     MLIRContext *ctx = rewriter.getContext();
 
     // get inputs as memrefs
-    Value lhs = rewriter.create<AsMemRefOp>(loc, op.getLhs());
-    Value rhs = rewriter.create<AsMemRefOp>(loc, op.getRhs());
+    Value lhs = AsMemRefOp::create(rewriter, loc, op.getLhs());
+    Value rhs = AsMemRefOp::create(rewriter, loc, op.getRhs());
 
     // get lengths including null
-    Value lhsSize = rewriter.create<memref::DimOp>(loc, lhs, 0);
-    Value rhsSize = rewriter.create<memref::DimOp>(loc, rhs, 0);
-    Value one = rewriter.create<arith::ConstantIndexOp>(loc, 1);
+    Value lhsSize = memref::DimOp::create(rewriter, loc, lhs, 0);
+    Value rhsSize = memref::DimOp::create(rewriter, loc, rhs, 0);
+    Value one = arith::ConstantIndexOp::create(rewriter, loc, 1);
 
     // subtract one for the null terminator
-    Value lhsLen = rewriter.create<arith::SubIOp>(loc, lhsSize, one);
-    Value rhsLen = rewriter.create<arith::SubIOp>(loc, rhsSize, one);
+    Value lhsLen = arith::SubIOp::create(rewriter, loc, lhsSize, one);
+    Value rhsLen = arith::SubIOp::create(rewriter, loc, rhsSize, one);
 
     // total length + null
-    Value sumLen = rewriter.create<arith::AddIOp>(loc, lhsLen, rhsLen);
-    Value totalSize = rewriter.create<arith::AddIOp>(loc, sumLen, one);
+    Value sumLen = arith::AddIOp::create(rewriter, loc, lhsLen, rhsLen);
+    Value totalSize = arith::AddIOp::create(rewriter, loc, sumLen, one);
 
     // alloc result memref<?xi8>
     auto memrefTy = MemRefType::get({ShapedType::kDynamic}, rewriter.getI8Type());
-    Value alloc = rewriter.create<memref::AllocOp>(loc, memrefTy, totalSize);
+    Value alloc = memref::AllocOp::create(rewriter, loc, memrefTy, totalSize);
 
     // copy lhs region
-    Value zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
-    auto lhsDst = rewriter.create<memref::SubViewOp>(loc, memrefTy, alloc,
+    Value zero = arith::ConstantIndexOp::create(rewriter, loc, 0);
+    auto lhsDst = memref::SubViewOp::create(rewriter, loc, memrefTy, alloc,
       ValueRange{zero}, ValueRange{lhsLen}, ValueRange{one});
-    auto lhsSrc = rewriter.create<memref::SubViewOp>(loc, memrefTy, lhs,
+    auto lhsSrc = memref::SubViewOp::create(rewriter, loc, memrefTy, lhs,
       ValueRange{zero}, ValueRange{lhsLen}, ValueRange{one});
-    rewriter.create<memref::CopyOp>(loc, lhsSrc, lhsDst);
+    memref::CopyOp::create(rewriter, loc, lhsSrc, lhsDst);
 
     // copy rhs region
-    auto rhsDst = rewriter.create<memref::SubViewOp>(loc, memrefTy, alloc,
+    auto rhsDst = memref::SubViewOp::create(rewriter, loc, memrefTy, alloc,
       ValueRange{lhsLen}, ValueRange{rhsLen}, ValueRange{one});
-    auto rhsSrc = rewriter.create<memref::SubViewOp>(loc, memrefTy, rhs,
+    auto rhsSrc = memref::SubViewOp::create(rewriter, loc, memrefTy, rhs,
       ValueRange{zero}, ValueRange{rhsLen}, ValueRange{one});
-    rewriter.create<memref::CopyOp>(loc, rhsSrc, rhsDst);
+    memref::CopyOp::create(rewriter, loc, rhsSrc, rhsDst);
 
     // null-terminate
-    Value zero8 = rewriter.create<arith::ConstantIntOp>(loc, 0, 8);
-    rewriter.create<memref::StoreOp>(
+    Value zero8 = arith::ConstantIntOp::create(rewriter, loc, 0, 8);
+    memref::StoreOp::create(rewriter, 
       loc,
       zero8,
       alloc,
@@ -137,7 +137,7 @@ struct ConstantOpLowering : OpConversionPattern<ConstantOp> {
       // insert the global at symbol table scope
       PatternRewriter::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(&symbolTable->getRegion(0).front());
-      rewriter.create<memref::GlobalOp>(
+      memref::GlobalOp::create(rewriter, 
         op.getLoc(),
         rewriter.getStringAttr(globalName), // sym_name
         rewriter.getStringAttr("private"),  // sym_visibility
@@ -151,7 +151,7 @@ struct ConstantOpLowering : OpConversionPattern<ConstantOp> {
     }
 
     // create reference to the global
-    Value global = rewriter.create<memref::GetGlobalOp>(
+    Value global = memref::GetGlobalOp::create(rewriter, 
       op.getLoc(), staticType, symbol);
 
     // cast to dynamic type and replace the original op
@@ -184,7 +184,7 @@ struct CmpOpLowering : OpConversionPattern<CmpOp> {
       auto strcmpType = LLVM::LLVMFunctionType::get(i32Type, {ptrType, ptrType}, false);
       PatternRewriter::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(module.getBody());
-      rewriter.create<LLVM::LLVMFuncOp>(loc, "strcmp", strcmpType);
+      LLVM::LLVMFuncOp::create(rewriter, loc, "strcmp", strcmpType);
     }
 
     // extract aligned pointers from memref descriptors
@@ -194,7 +194,7 @@ struct CmpOpLowering : OpConversionPattern<CmpOp> {
     Value rhsPtr = rhsDesc.alignedPtr(rewriter, loc);
 
     // call strcmp
-    Value result = rewriter.create<LLVM::CallOp>(
+    Value result = LLVM::CallOp::create(rewriter, 
       loc,
       i32Type,
       "strcmp",
@@ -202,7 +202,7 @@ struct CmpOpLowering : OpConversionPattern<CmpOp> {
     ).getResult();
 
     // compare against zero
-    Value zero = rewriter.create<arith::ConstantIntOp>(loc, 0, 32);
+    Value zero = arith::ConstantIntOp::create(rewriter, loc, 0, 32);
 
     arith::CmpIPredicate pred;
     switch (op.getPredicate()) {
@@ -273,7 +273,7 @@ struct FormatOpLowering : OpConversionPattern<FormatOp> {
     if (!module.lookupSymbol<LLVM::LLVMFuncOp>("snprintf")) {
       PatternRewriter::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(module.getBody());
-      rewriter.create<LLVM::LLVMFuncOp>(loc, "snprintf", snprintfTy);
+      LLVM::LLVMFuncOp::create(rewriter, loc, "snprintf", snprintfTy);
     }
 
     // extract format string pointer from lowered memref descriptor
@@ -285,21 +285,21 @@ struct FormatOpLowering : OpConversionPattern<FormatOp> {
     for (Value arg : adaptor.getArgs()) {
       if (arg.getType().isInteger(1)) {
         fmtArgs.push_back(
-          rewriter.create<LLVM::ZExtOp>(loc, i32Ty, arg));
+          LLVM::ZExtOp::create(rewriter, loc, i32Ty, arg));
       } else {
         fmtArgs.push_back(arg);
       }
     }
 
     // step 1: measure — snprintf(nullptr, 0, fmt, args...) → length
-    Value nullPtr = rewriter.create<LLVM::ZeroOp>(loc, ptrTy);
-    Value zero64 = rewriter.create<LLVM::ConstantOp>(
+    Value nullPtr = LLVM::ZeroOp::create(rewriter, loc, ptrTy);
+    Value zero64 = LLVM::ConstantOp::create(rewriter, 
       loc, i64Ty, rewriter.getI64IntegerAttr(0));
 
     SmallVector<Value> measureArgs = {nullPtr, zero64, fmtPtr};
     measureArgs.append(fmtArgs.begin(), fmtArgs.end());
 
-    Value len32 = rewriter.create<LLVM::CallOp>(
+    Value len32 = LLVM::CallOp::create(rewriter, 
       loc,
       snprintfTy,
       "snprintf",
@@ -307,27 +307,27 @@ struct FormatOpLowering : OpConversionPattern<FormatOp> {
     ).getResult();
 
     // bufSize = len + 1 (for null terminator)
-    Value one32 = rewriter.create<LLVM::ConstantOp>(
+    Value one32 = LLVM::ConstantOp::create(rewriter, 
       loc, i32Ty, rewriter.getI32IntegerAttr(1));
-    Value bufSize32 = rewriter.create<LLVM::AddOp>(loc, len32, one32);
-    Value bufSize = rewriter.create<LLVM::SExtOp>(loc, i64Ty, bufSize32);
+    Value bufSize32 = LLVM::AddOp::create(rewriter, loc, len32, one32);
+    Value bufSize = LLVM::SExtOp::create(rewriter, loc, i64Ty, bufSize32);
 
     // convert to index for memref.alloc
-    Value bufSizeIdx = rewriter.create<arith::IndexCastOp>(
+    Value bufSizeIdx = arith::IndexCastOp::create(rewriter, 
       loc, rewriter.getIndexType(), bufSize);
 
     // step 2: allocate buffer via memref.alloc
-    Value alloc = rewriter.create<memref::AllocOp>(loc, memrefTy, bufSizeIdx);
+    Value alloc = memref::AllocOp::create(rewriter, loc, memrefTy, bufSizeIdx);
 
     // extract pointer from memref for snprintf
-    Value ptrIdx = rewriter.create<memref::ExtractAlignedPointerAsIndexOp>(loc, alloc);
-    Value ptrInt = rewriter.create<arith::IndexCastOp>(loc, i64Ty, ptrIdx);
-    Value bufPtr = rewriter.create<LLVM::IntToPtrOp>(loc, ptrTy, ptrInt);
+    Value ptrIdx = memref::ExtractAlignedPointerAsIndexOp::create(rewriter, loc, alloc);
+    Value ptrInt = arith::IndexCastOp::create(rewriter, loc, i64Ty, ptrIdx);
+    Value bufPtr = LLVM::IntToPtrOp::create(rewriter, loc, ptrTy, ptrInt);
 
     // step 3: format — snprintf(buf, bufSize, fmt, args...)
     SmallVector<Value> writeArgs = {bufPtr, bufSize, fmtPtr};
     writeArgs.append(fmtArgs.begin(), fmtArgs.end());
-    rewriter.create<LLVM::CallOp>(
+    LLVM::CallOp::create(rewriter, 
       loc,
       snprintfTy,
       "snprintf",

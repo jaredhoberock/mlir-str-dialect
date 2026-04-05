@@ -24,7 +24,7 @@ MlirOperation strConstantOpCreate(MlirLocation loc,
                                   MlirStringRef value) {
   MLIRContext *ctx = unwrap(loc).getContext();
   OpBuilder builder(ctx);
-  auto op = builder.create<ConstantOp>(
+  auto op = ConstantOp::create(builder, 
     unwrap(loc),
     StringRef(value.data, value.length)
   );
@@ -39,7 +39,7 @@ MlirOperation strCmpOpCreate(MlirLocation loc,
   OpBuilder builder(ctx);
 
   auto cppPredicate = static_cast<str::CmpPredicate>(predicate);
-  auto op = builder.create<CmpOp>(
+  auto op = CmpOp::create(builder, 
     unwrap(loc),
     cppPredicate,
     unwrap(lhs),
@@ -53,7 +53,7 @@ MlirOperation strAsMemRefOpCreate(MlirLocation loc,
   MLIRContext *ctx = unwrap(loc).getContext();
   OpBuilder builder(ctx);
 
-  auto op = builder.create<AsMemRefOp>(
+  auto op = AsMemRefOp::create(builder, 
     unwrap(loc),
     unwrap(input)
   );
@@ -66,7 +66,7 @@ MlirOperation strCatOpCreate(MlirLocation loc,
   MLIRContext *ctx = unwrap(loc).getContext();
   OpBuilder builder(ctx);
 
-  auto op = builder.create<CatOp>(
+  auto op = CatOp::create(builder, 
     unwrap(loc),
     unwrap(lhs),
     unwrap(rhs)
@@ -83,7 +83,7 @@ MlirOperation strFormatOpCreate(MlirLocation loc,
   for (intptr_t i = 0; i < numArgs; ++i) {
     argValues.push_back(unwrap(args[i]));
   }
-  auto op = builder.create<FormatOp>(
+  auto op = FormatOp::create(builder, 
     unwrap(loc),
     unwrap(format),
     argValues
