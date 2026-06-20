@@ -8,7 +8,7 @@
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/OpImplementation.h>
 
-#include "Dialect.cpp.inc"
+#include <Dialect.cpp.inc>
 
 namespace mlir::str {
 
@@ -25,7 +25,7 @@ struct ConvertToLLVMInterface : public mlir::ConvertToLLVMPatternInterface {
 void StrDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
-#include "Ops.cpp.inc"
+#include <Ops.cpp.inc>
   >();
 
   registerTypes();
