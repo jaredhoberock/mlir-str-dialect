@@ -14,6 +14,7 @@ INCLUDES := -I$(BUILD_DIR) -I. -I$(MLIR_SYS_220_PREFIX)/include
 DIALECT_SOURCES := c_api.cpp Canonicalization.cpp Dialect.cpp Enums.cpp Lowering.cpp Ops.cpp Types.cpp
 DIALECT_OBJECTS := $(addprefix $(BUILD_DIR)/,$(DIALECT_SOURCES:.cpp=.o))
 PLUGIN_OBJECTS := $(DIALECT_OBJECTS) $(BUILD_DIR)/Plugin.o
+DEPS := $(PLUGIN_OBJECTS:.o=.d)
 TD_FILES := $(wildcard *.td)
 
 GENERATED := \
@@ -58,7 +59,7 @@ $(BUILD_DIR)/Types.cpp.inc: Types.td $(TD_FILES) | $(BUILD_DIR)
 	$(TBLGEN) --gen-typedef-defs $(INCLUDES) $< -o $@
 
 $(BUILD_DIR)/%.o: %.cpp $(GENERATED) | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -MMD -MP -c $< -o $@
 
 $(BUILD_DIR)/libstr_dialect.a: $(DIALECT_OBJECTS)
 	ar rcs $@ $^
@@ -71,3 +72,5 @@ test: $(BUILD_DIR)/libstr_dialect.so
 
 clean:
 	rm -rf $(BUILD_DIR) tests/Output
+
+-include $(DEPS)
