@@ -92,20 +92,11 @@ struct CatOpLowering : OpConversionPattern<CatOp> {
 struct ConstantOpLowering : OpConversionPattern<ConstantOp> {
   using OpConversionPattern::OpConversionPattern;
 
-  // cache mapping (symbol table, string content digest) to symbol name
-  mutable llvm::DenseMap<std::pair<Operation*, uint64_t>, StringAttr> globalSymbolCache;
-
   LogicalResult matchAndRewrite(
       ConstantOp op, OpAdaptor adaptor,
       ConversionPatternRewriter &rewriter) const override {
     std::string stringValue = op.getValue().str();
     stringValue.push_back('\0'); // ensure null termination
-
-    // Name the global from a stable content digest of the string's bytes
-    // (llvm::xxh3_64bits), printed as fixed-width lowercase hex, so the same string
-    // yields the same symbol in every process.
-    uint64_t digest = llvm::xxh3_64bits(stringValue);
-    StringAttr symbol;
 
     // create types
     auto i8Type = IntegerType::get(rewriter.getContext(), 8);
@@ -113,47 +104,66 @@ struct ConstantOpLowering : OpConversionPattern<ConstantOp> {
     auto staticType = MemRefType::get({length}, i8Type);
     auto dynamicType = MemRefType::get({ShapedType::kDynamic}, i8Type);
 
+    // build the constant initializer once so an existing global can be compared to
+    // it by interned identity
+    SmallVector<APInt, 16> chars;
+    chars.reserve(length);
+    for (uint8_t c : stringValue)
+      chars.push_back(APInt(8, c));
+    auto tensorType = RankedTensorType::get({length}, i8Type);
+    auto initialValueAttr = DenseElementsAttr::get(tensorType, chars);
+
     // find nearest symbol table
     Operation *symbolTable = SymbolTable::getNearestSymbolTable(op);
     if (!symbolTable)
       return rewriter.notifyMatchFailure(op, "not inside a symbol table");
 
-    // cache key includes symbol table
-    auto cacheKey = std::make_pair(symbolTable, digest);
+    // Name the global from a stable content digest of the string's bytes
+    // (llvm::xxh3_64bits), printed as fixed-width lowercase hex, so the same string
+    // yields the same symbol in every process. The symbol table is the cache: a
+    // global of that name already holding this initializer is reused; a global of
+    // that name holding other bytes takes a fresh suffixed name, so no symbol is
+    // redefined and a rolled-back conversion leaves no stale entry behind.
+    uint64_t digest = llvm::xxh3_64bits(stringValue);
+    std::string digestName =
+        "__str_" + llvm::utohexstr(digest, /*LowerCase=*/true, /*Width=*/16);
 
-    // check cache first
-    auto it = globalSymbolCache.find(cacheKey);
-    if (it == globalSymbolCache.end()) {
-      // create a name for the global from the content digest, as fixed-width
-      // lowercase hex so the same string yields the same symbol in every process
-      std::string globalName = "__str_" + llvm::utohexstr(digest, /*LowerCase=*/true, /*Width=*/16);
+    StringAttr symbol;
+    if (Operation *existing = SymbolTable::lookupSymbolIn(symbolTable, digestName)) {
+      // The digest name is taken. Reuse it when it already holds this initializer --
+      // whether it is still a memref.global or the llvm.mlir.global that global
+      // becomes later in this same conversion -- so a string names one global; a
+      // name holding other bytes falls through to a fresh suffixed one.
+      Attribute existingInit;
+      if (auto memrefGlobal = dyn_cast<memref::GlobalOp>(existing))
+        existingInit = memrefGlobal.getInitialValueAttr();
+      else if (auto llvmGlobal = dyn_cast<LLVM::GlobalOp>(existing))
+        existingInit = llvmGlobal.getValueAttr();
+      if (existingInit == initialValueAttr)
+        symbol = SymbolTable::getSymbolName(existing);
+    }
+
+    if (!symbol) {
+      // the digest name when it is free, otherwise a suffixed one
+      std::string globalName = digestName;
+      for (unsigned disambiguator = 0;
+           SymbolTable::lookupSymbolIn(symbolTable, globalName);
+           ++disambiguator)
+        globalName = digestName + "_" + std::to_string(disambiguator);
       symbol = rewriter.getStringAttr(globalName);
-      globalSymbolCache[cacheKey] = symbol;
-
-      // construct DenseElementsAttr from characters
-      SmallVector<APInt,16> chars;
-      chars.reserve(length);
-      for (uint8_t c : stringValue) {
-        chars.push_back(APInt(8,c));
-      }
-
-      auto tensorType = RankedTensorType::get({length}, i8Type);
-      auto initialValueAttr = DenseElementsAttr::get(tensorType, chars);
 
       // insert the global at symbol table scope
       PatternRewriter::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(&symbolTable->getRegion(0).front());
-      memref::GlobalOp::create(rewriter, 
+      memref::GlobalOp::create(rewriter,
         op.getLoc(),
-        rewriter.getStringAttr(globalName), // sym_name
+        symbol,                             // sym_name
         rewriter.getStringAttr("private"),  // sym_visibility
         staticType,                         // type
         initialValueAttr,                   // initial_value
         true,                               // constant
         nullptr                             // alignment - use nullptr for default
       );
-    } else {
-      symbol = it->second;
     }
 
     // create reference to the global
