@@ -13,6 +13,8 @@
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/Dialect/MemRef/Transforms/Transforms.h>
 #include <mlir/Transforms/DialectConversion.h>
+#include <llvm/ADT/StringExtras.h>
+#include <llvm/Support/xxhash.h>
 
 namespace mlir::str {
 
@@ -90,7 +92,7 @@ struct CatOpLowering : OpConversionPattern<CatOp> {
 struct ConstantOpLowering : OpConversionPattern<ConstantOp> {
   using OpConversionPattern::OpConversionPattern;
 
-  // cache mapping (symbol table, string hash) to symbol name
+  // cache mapping (symbol table, string content digest) to symbol name
   mutable llvm::DenseMap<std::pair<Operation*, uint64_t>, StringAttr> globalSymbolCache;
 
   LogicalResult matchAndRewrite(
@@ -99,7 +101,10 @@ struct ConstantOpLowering : OpConversionPattern<ConstantOp> {
     std::string stringValue = op.getValue().str();
     stringValue.push_back('\0'); // ensure null termination
 
-    uint64_t hash = llvm::hash_value(stringValue);
+    // Name the global from a stable content digest of the string's bytes
+    // (llvm::xxh3_64bits), printed as fixed-width lowercase hex, so the same string
+    // yields the same symbol in every process.
+    uint64_t digest = llvm::xxh3_64bits(stringValue);
     StringAttr symbol;
 
     // create types
@@ -114,13 +119,14 @@ struct ConstantOpLowering : OpConversionPattern<ConstantOp> {
       return rewriter.notifyMatchFailure(op, "not inside a symbol table");
 
     // cache key includes symbol table
-    auto cacheKey = std::make_pair(symbolTable, hash);
+    auto cacheKey = std::make_pair(symbolTable, digest);
 
     // check cache first
     auto it = globalSymbolCache.find(cacheKey);
     if (it == globalSymbolCache.end()) {
-      // create a name for the global based on the hash
-      std::string globalName = "__str_" + std::to_string(hash);
+      // create a name for the global from the content digest, as fixed-width
+      // lowercase hex so the same string yields the same symbol in every process
+      std::string globalName = "__str_" + llvm::utohexstr(digest, /*LowerCase=*/true, /*Width=*/16);
       symbol = rewriter.getStringAttr(globalName);
       globalSymbolCache[cacheKey] = symbol;
 
