@@ -1,6 +1,7 @@
 #include "Dialect.hpp"
 #include "Ops.hpp"
 #include "Lowering.hpp"
+#include "PermissiveInlinerInterface.hpp"
 #include "Types.hpp"
 #include <llvm/ADT/STLExtras.h>
 #include <mlir/Conversion/ConvertToLLVM/ToLLVMInterface.h>
@@ -23,23 +24,6 @@ struct ConvertToLLVMInterface : public mlir::ConvertToLLVMPatternInterface {
   }
 };
 
-/// Declares inlining legal for the str dialect. MLIR's inliner clones a callee
-/// only when every op in it belongs to a dialect registering this interface, so a
-/// function holding a str op is inlinable only once str provides one. The hooks
-/// are permissive: str's ops carry no state that forbids cloning them into
-/// another region.
-struct StrInlinerInterface : public DialectInlinerInterface {
-  using DialectInlinerInterface::DialectInlinerInterface;
-
-  bool isLegalToInline(Operation *, Region *, bool, IRMapping &) const final {
-    return true;
-  }
-
-  bool isLegalToInline(Region *, Region *, bool, IRMapping &) const final {
-    return true;
-  }
-};
-
 void StrDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
@@ -50,7 +34,7 @@ void StrDialect::initialize() {
 
   addInterfaces<
     ConvertToLLVMInterface,
-    StrInlinerInterface
+    lowering::PermissiveInlinerInterface<StrDialect>
   >();
 }
 

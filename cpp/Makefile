@@ -6,12 +6,14 @@ BUILD_DIR := build
 LLVM_BIN_PATH := $(MLIR_SYS_220_PREFIX)/bin
 LLVM_CONFIG := $(LLVM_BIN_PATH)/llvm-config
 TBLGEN := $(LLVM_BIN_PATH)/mlir-tblgen
+# The lowering driver's header-only shared inliner interface.
+LOWERING_DRIVER_SOURCE_DIR := ../../mlir-lowering-driver/cpp
 
 CXX := clang++
 # The install's llvm-config reports no optimization level; set -O2 as the
 # default here. Asserts stay on (no -DNDEBUG) -- the dialect verifiers are product.
 CXXFLAGS := -fPIC $(shell $(LLVM_CONFIG) --cxxflags) -O2
-INCLUDES := -I$(BUILD_DIR) -I. -I$(MLIR_SYS_220_PREFIX)/include
+INCLUDES := -I$(BUILD_DIR) -I. -I$(MLIR_SYS_220_PREFIX)/include -I$(LOWERING_DRIVER_SOURCE_DIR)
 
 DIALECT_SOURCES := c_api.cpp Canonicalization.cpp Dialect.cpp Enums.cpp Lowering.cpp Ops.cpp Types.cpp
 DIALECT_OBJECTS := $(addprefix $(BUILD_DIR)/,$(DIALECT_SOURCES:.cpp=.o))
