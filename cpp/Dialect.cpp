@@ -15,7 +15,8 @@
 namespace mlir::str {
 
 struct ConvertToLLVMInterface : public mlir::ConvertToLLVMPatternInterface {
-  using mlir::ConvertToLLVMPatternInterface::ConvertToLLVMPatternInterface;
+  ConvertToLLVMInterface(mlir::Dialect *dialect)
+      : mlir::ConvertToLLVMPatternInterface(dialect) {}
 
   void populateConvertToLLVMConversionPatterns(ConversionTarget& target,
                                                LLVMTypeConverter& typeConverter,
