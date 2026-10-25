@@ -4,9 +4,14 @@ version = "0.1.0"
 edition = "2024"
 links = "str_dialect"
 
+# XXX TODO the estate dependencies name `branch = "distribution"` while the
+# series that changes their build metadata is unmerged; the key leaves when the
+# series merges to main and each dependency is re-locked against main with
+# `cargo update -p`.
 [dependencies]
 melior = "0.28.2"
 mlir-sys = "230.0.2"
+lowering_driver = { git = "ssh://git@github.com/jaredhoberock/mlir-lowering-driver.git", branch = "distribution", package = "mlir-lowering-driver" }
 
 [lib]
 name = "str_dialect"
